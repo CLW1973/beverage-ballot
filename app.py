@@ -49,7 +49,7 @@ if not data:
 st.title("🍹 Beverage Ballot")
 st.caption(f"Logged in as: **{st.session_state.my_team}**")
 
-# --- SCOREBOARD (Direct from Cloud) ---
+# --- SCOREBOARD ---
 s_pts = int(data.get('Savarese', 0))
 w_pts = int(data.get('Willis', 0))
 col_s, col_w = st.columns(2)
@@ -109,21 +109,8 @@ else:
     guesser_team = "Team Willis" if host_team == "Team Savarese" else "Team Savarese"
     h_names = sav_members if host_team == "Team Savarese" else wil_members
 
-    # 1. HOST VIEW (The Team that took the picture)
+    # 1. HOST VIEW (The ones who sent the drinks)
     if st.session_state.my_team == host_team:
         st.header("⏳ Waiting for Guessers")
         st.info(f"Round sent from **{data.get('Loc')}**. Waiting for **{guesser_team}** to guess.")
-        if data.get('URL'): 
-            st.image(data['URL'], caption="Your drink photo")
-        if st.button("🔄 Check for Guesses"): 
-            st.rerun()
-
-    # 2. GUESSER VIEW (The Team that needs to guess)
-    else:
-        st.header(f"🎯 {guesser_team}: Guess!")
-        if data.get('URL'): 
-            st.image(data['URL'])
-        st.write(f"📍 Location: **{data.get('Loc')}**")
-        
-        with st.form("guess_form"):
-            st.markdown(f"### Player 1: {h_
+        if data.get('URL
