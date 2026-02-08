@@ -23,7 +23,8 @@ def save_game_state(data):
 
 def load_game_state():
     try:
-        r = requests.get(get_db_url(), timeout=5)
+        # Adding a timestamp to the URL to bypass any phone-level caching
+        r = requests.get(f"{get_db_url()}?cb={int(time.time())}", timeout=5)
         if r.status_code == 200 and r.json():
             return r.json()
     except:
@@ -36,7 +37,6 @@ if 'my_team' not in st.session_state:
 
 if st.session_state.my_team is None:
     st.title("🍹 Beverage Ballot")
-    st.subheader("Which team are you on?")
     c1, c2 = st.columns(2)
     if c1.button("Team Savarese", use_container_width=True):
         st.session_state.my_team = "Team Savarese"
@@ -46,19 +46,24 @@ if st.session_state.my_team is None:
         st.rerun()
     st.stop()
 
-# Load Data fresh every run
+# --- THE "ALWAYS FRESH" FETCH ---
+# We load data here to ensure the metrics below are never stale
 data = load_game_state()
 
 st.title("🍹 Beverage Ballot")
 st.caption(f"Team: **{st.session_state.my_team}**")
 
-if st.button("🔄 REFRESH SCORES", type="primary", use_container_width=True):
+if st.button("🔄 REFRESH ALL DATA", type="primary", use_container_width=True):
     st.rerun()
 
 # --- SCOREBOARD ---
+# These variables now pull directly from the 'data' we just fetched
+sav_total = data.get('Savarese', 0)
+wil_total = data.get('Willis', 0)
+
 c1, c2 = st.columns(2)
-c1.metric("Team Savarese", f"{data.get('Savarese', 0)} pts")
-c2.metric("Team Willis", f"{data.get('Willis', 0)} pts")
+c1.metric("Team Savarese", f"{sav_total} pts")
+c2.metric("Team Willis", f"{wil_total} pts")
 st.divider()
 
 sav_names = ["Ralph", "Trisha"]
@@ -82,19 +87,20 @@ if str(data.get('Active')) != "Yes":
         d2 = col2.number_input(f"{host_ppl[1]}'s #", step=1, value=0)
         
         if st.button("🚀 SEND ROUND", use_container_width=True):
-            with st.spinner("Broadcasting..."):
+            with st.spinner("Uploading..."):
                 p_url = ""
                 if img:
                     up_url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload"
                     r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     p_url = r_img.json().get("secure_url", "")
                 
-                # Update DB - Keeping existing scores!
-                data.update({
+                # Fetch fresh scores so we don't reset them to 0 when starting a round
+                fresh_data = load_game_state()
+                fresh_data.update({
                     "Active": "Yes", "Host": host_choice, "H1": int(d1), "H2": int(d2),
                     "Loc": loc, "URL": p_url, "LastResult": ""
                 })
-                if save_game_state(data):
+                if save_game_state(fresh_data):
                     st.rerun()
     else:
         st.info(f"Waiting for **{host_choice}** to set the round...")
@@ -120,27 +126,27 @@ else:
             gb2 = c4.number_input(f"Guess B {host_names[1]}", step=1, value=0)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
-                # 1. Load FRESH data right now to get the current scores
-                latest_db = load_game_state()
+                # 1. Fetch CURRENT database state
+                final_sync = load_game_state()
                 
-                ans1, ans2 = int(latest_db.get('H1', 0)), int(latest_db.get('H2', 0))
+                ans1, ans2 = int(final_sync.get('H1', 0)), int(final_sync.get('H2', 0))
                 correct = sum([ga1==ans1, ga2==ans2, gb1==ans1, gb2==ans2])
                 
-                # 2. Calculate Points
+                # 2. Points
                 if correct == 4: label, pts = "🏆 Full Pint!", 4
                 elif correct == 3: label, pts = "🍺 Almost Full", 2
                 elif correct == 2: label, pts = "🌗 Half Pint", 0
                 elif correct == 1: label, pts = "💧 Low Tide", -2
                 else: label, pts = "💀 Empty Pint", -4
                 
-                # 3. Apply to the FRESH database scores
-                current_total = int(latest_db.get(guesser_team, 0))
-                latest_db[guesser_team] = current_total + pts
-                latest_db['Active'] = "No"
-                latest_db['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
+                # 3. Apply to the current database totals
+                old_total = int(final_sync.get(guesser_team, 0))
+                final_sync[guesser_team] = old_total + pts
+                final_sync['Active'] = "No"
+                final_sync['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
                 
-                # 4. Save back to Firebase
-                if save_game_state(latest_db):
+                # 4. Save
+                if save_game_state(final_sync):
                     if pts >= 0: st.balloons()
                     st.rerun()
     else:
@@ -148,7 +154,7 @@ else:
 
 # --- FOOTER ---
 st.divider()
-if st.button("🚪 Switch Team / Logout"):
+if st.button("🚪 Logout / Switch Team"):
     st.session_state.my_team = None
     st.rerun()
 
