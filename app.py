@@ -5,13 +5,14 @@ import json
 
 st.set_page_config(page_title="Beverage Ballot", page_icon="🍹")
 
-# --- DATABASE LOGIC ---
+# --- THE BRUTE FORCE SYNC ---
 def save_game_state(data):
     try:
         url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload"
+        # We save as 'latest_state' to ensure there is always a master file
         payload = {
             "upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET'],
-            "public_id": "willis_savarese_state_v3",
+            "public_id": "latest_ballot_state",
             "resource_type": "raw",
             "overwrite": "true",
             "invalidate": "true" 
@@ -24,8 +25,9 @@ def save_game_state(data):
 
 def load_game_state():
     try:
-        # Timestamp prevents the phone from showing "old" data
-        url = f"https://res.cloudinary.com/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload/willis_savarese_state_v3.json?t={int(time.time())}"
+        # We add a random number to the URL to kill all caching
+        cb = int(time.time())
+        url = f"https://res.cloudinary.com/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload/latest_ballot_state.json?cb={cb}"
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
             return r.json()
@@ -33,7 +35,7 @@ def load_game_state():
         pass
     return {"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "Team Savarese", "Loc": "", "URL": ""}
 
-# Load current state
+# Load state
 if 'data' not in st.session_state:
     st.session_state.data = load_game_state()
 
@@ -55,8 +57,9 @@ st.divider()
 sav_names = ["Ralph", "Trisha"]
 wil_names = ["Charles", "Barbara"]
 
-# --- AUTOMATIC UI SWITCH ---
-if data.get('Active') == "No":
+# --- UI SWITCH ---
+# Use a very strict check for the word "Yes"
+if str(data.get('Active')) != "Yes":
     st.header("📢 Start a Round")
     host_choice = st.radio("Who is ordering?", ["Team Savarese", "Team Willis"], horizontal=True)
     loc = st.text_input("Location Name")
@@ -68,30 +71,30 @@ if data.get('Active') == "No":
     d2 = col_b.number_input(f"{p_names[1]}'s #", value=0, step=1)
     
     if st.button("🚀 SEND ROUND", use_container_width=True):
-        if d1 == 0 and d2 == 0:
-            st.error("Enter drink numbers first!")
-        else:
-            with st.spinner("Uploading..."):
-                p_url = ""
-                if img:
-                    up_url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload"
-                    r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
-                    p_url = r_img.json().get("secure_url", "")
+        with st.spinner("Forcing Cloud Update..."):
+            p_url = ""
+            if img:
+                up_url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload"
+                r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
+                p_url = r_img.json().get("secure_url", "")
 
-                new_state = {
-                    "Savarese": data.get('Savarese', 0),
-                    "Willis": data.get('Willis', 0),
-                    "Active": "Yes",
-                    "Host": host_choice,
-                    "H1": int(d1), "H2": int(d2),
-                    "Loc": loc, "URL": p_url
-                }
-                if save_game_state(new_state):
-                    st.session_state.data = new_state
-                    st.rerun()
+            new_state = {
+                "Savarese": data.get('Savarese', 0),
+                "Willis": data.get('Willis', 0),
+                "Active": "Yes",
+                "Host": host_choice,
+                "H1": int(d1), "H2": int(d2),
+                "Loc": loc, "URL": p_url
+            }
+            # We SAVE and then immediately RELOAD to force the screen to flip
+            if save_game_state(new_state):
+                st.session_state.data = new_state
+                st.rerun()
+            else:
+                st.error("Cloudinary failed to save. Check your preset is 'Unsigned'.")
 
 else:
-    # --- GUESSING SCREEN (The Automatic Switch) ---
+    # --- GUESSING SCREEN ---
     guesser = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
     h_names = sav_names if data['Host'] == "Team Savarese" else wil_names
     
@@ -99,7 +102,7 @@ else:
     st.info(f"📍 {data['Host']} is at {data['Loc']}")
     
     if data.get('URL'):
-        st.image(f"{data['URL']}?t={time.time()}")
+        st.image(f"{data['URL']}?cb={int(time.time())}")
     
     with st.form("guess_form"):
         st.write("Enter whole numbers for guesses:")
@@ -126,8 +129,3 @@ else:
                 st.session_state.data = latest
                 if swing > 0: st.balloons()
                 st.rerun()
-
-st.sidebar.divider()
-if st.sidebar.button("🚨 Reset Scores"):
-    save_game_state({"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "Team Savarese", "Loc": "", "URL": ""})
-    st.rerun()
