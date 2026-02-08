@@ -64,7 +64,7 @@ sav_members = ["Ralph", "Trisha"]
 wil_members = ["Charles", "Barbara"]
 
 # --- VIEW LOGIC ---
-is_active = str(data.get('Active')) == "Yes"
+is_active = (str(data.get('Active')) == "Yes")
 host_team = data.get('Host')
 
 # SCENARIO A: NO ACTIVE ROUND
@@ -113,4 +113,25 @@ else:
     if st.session_state.my_team == host_team:
         st.header("⏳ Waiting for Guessers")
         st.info(f"Round sent from **{data.get('Loc')}**. Waiting for **{guesser_team}** to guess.")
-        if data.get('URL
+        if data.get('URL'): 
+            st.image(data.get('URL'), caption="Your drink photo")
+        if st.button("🔄 Check for Results"): 
+            st.rerun()
+
+    # 2. GUESSER VIEW (The ones guessing)
+    else:
+        st.header(f"🎯 {guesser_team}: Guess!")
+        if data.get('URL'): 
+            st.image(data.get('URL'))
+        st.write(f"📍 Location: **{data.get('Loc')}**")
+        
+        with st.form("guess_form"):
+            st.markdown(f"### Player: {h_names[0]}")
+            c1, c2 = st.columns(2)
+            g1_a = c1.number_input(f"Guess 1 for {h_names[0]}", step=1, value=0, key="p1a")
+            g1_b = c2.number_input(f"Guess 2 for {h_names[0]}", step=1, value=0, key="p1b")
+            
+            st.markdown(f"### Player: {h_names[1]}")
+            c3, c4 = st.columns(2)
+            g2_a = c3.number_input(f"Guess 1 for {h_names[1]}", step=1, value=0, key="p2a")
+            g2_b = c4.number_input(f"Guess 2 for {h_names[1]}", step=1, value=0
