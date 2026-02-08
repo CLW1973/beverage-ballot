@@ -22,8 +22,10 @@ if 'my_team' not in st.session_state: st.session_state.my_team = None
 if st.session_state.my_team is None:
     st.title("🍹 Beverage Ballot")
     c1, c2 = st.columns(2)
-    if c1.button("Team Savarese"): st.session_state.my_team = "Team Savarese"; st.rerun()
-    if c2.button("Team Willis"): st.session_state.my_team = "Team Willis"; st.rerun()
+    if c1.button("Team Savarese"): 
+        st.session_state.my_team = "Team Savarese"; st.rerun()
+    if c2.button("Team Willis"): 
+        st.session_state.my_team = "Team Willis"; st.rerun()
     st.stop()
 
 data = load_game()
@@ -52,7 +54,8 @@ if not is_active:
         img = st.camera_input("Photo")
         names = sav_m if h_choice == "Team Savarese" else wil_m
         ca, cb = st.columns(2)
-        d1, d2 = ca.number_input(f"{names[0]} #", 0), cb.number_input(f"{names[1]} #", 0)
+        d1 = ca.number_input(f"{names[0]} #", 0)
+        d2 = cb.number_input(f"{names[1]} #", 0)
         if st.button("🚀 SEND", use_container_width=True):
             url = ""
             if img:
@@ -60,32 +63,4 @@ if not is_active:
                     r_i = requests.post(f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload", data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     url = r_i.json().get("secure_url", "")
                 except: pass
-            update_db({"Active": "Yes", "Host": h_choice, "H1": int(d1), "H2": int(d2), "Loc": loc, "URL": url, "LastResult": ""})
-            st.rerun()
-    else: st.info(f"Waiting for {h_choice} to start...")
-
-else:
-    t_names = sav_m if host_t == "Team Savarese" else wil_m
-    g_team = "Team Willis" if host_t == "Team Savarese" else "Team Savarese"
-    
-    if st.session_state.my_team == host_t:
-        st.info(f"Waiting for {g_team} to guess your drinks at {data.get('Loc')}...")
-        if data.get('URL'): st.image(data['URL'])
-        if st.button("🔄 Check Result"): st.rerun()
-    else:
-        st.header(f"🎯 {g_team}: Guess!")
-        if data.get('URL'): st.image(data['URL'])
-        with st.form("g_form"):
-            st.subheader("Player A")
-            c1, c2 = st.columns(2)
-            ga1 = c1.number_input(f"A: {t_names[0]}", 0)
-            ga2 = c2.number_input(f"A: {t_names[1]}", 0)
-            st.subheader("Player B")
-            c3, c4 = st.columns(2)
-            gb1 = c3.number_input(f"B: {t_names[0]}", 0)
-            gb2 = c4.number_input(f"B: {t_names[1]}", 0)
-            if st.form_submit_button("✅ SUBMIT"):
-                fresh = load_game()
-                ans1, ans2 = int(fresh.get('H1', 0)), int(fresh.get('H2', 0))
-                cor, slots = 0, 0
-                if ga1 > 0 or
+            update_db({"Active": "Yes", "Host":
