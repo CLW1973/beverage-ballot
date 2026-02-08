@@ -136,4 +136,21 @@ else:
                     elif pct >= 0.25: 
                         label, pts = "💧 Low Tide", -2
                     else: 
-                        label, pts = "💀 Empty Pint
+                        label, pts = "💀 Empty Pint", (-4 if is_full_team else -2)
+                    
+                    current_db_total = int(fresh.get(g_team, 0))
+                    update_db({
+                        g_team: current_db_total + pts,
+                        "Active": "No",
+                        "LastResult": f"{label} ({int(pct*100)}% Correct). {pts} pts added!"
+                    })
+                    if pts >= 0: st.balloons()
+                    st.rerun()
+    else:
+        st.warning(f"Waiting for {g_team} to guess...")
+
+# --- FOOTER ---
+st.divider()
+if st.sidebar.button("🚨 RESET ALL SCORES"):
+    update_db({"Savarese": 0, "Willis": 0, "Active": "No", "LastResult": "Game Reset!"})
+    st.rerun()
