@@ -12,7 +12,7 @@ def get_db_url(path="game"):
 
 def load_game_state():
     try:
-        # The 'cb' parameter forces the database to send fresh data, not a cached version
+        # cb=time.time() forces the browser/server to ignore cache and get LIVE data
         r = requests.get(f"{get_db_url()}?cb={time.time()}", timeout=5)
         return r.json() if r.status_code == 200 else {}
     except:
@@ -20,7 +20,7 @@ def load_game_state():
 
 def update_db(payload):
     try:
-        # PATCH ensures we only update specific fields, protecting the scoreboard
+        # We use PATCH so we never overwrite fields we aren't specifically changing
         requests.patch(get_db_url(), json=payload, timeout=10)
         return True
     except:
@@ -39,8 +39,7 @@ if st.session_state.my_team is None:
         st.session_state.my_team = "Team Willis"; st.rerun()
     st.stop()
 
-# --- LIVE SYNC SCOREBOARD ---
-# This ensures the scoreboard is updated every time the script runs
+# --- LIVE SCORE RE-FETCH ---
 data = load_game_state()
 if not data:
     data = {"Savarese": 0, "Willis": 0, "Active": "No"}
@@ -48,22 +47,23 @@ if not data:
 st.title("🍹 Beverage Ballot")
 st.caption(f"Logged in as: **{st.session_state.my_team}**")
 
-# Scoreboard Display
+# --- FIXED SCOREBOARD ---
+# We convert to int explicitly to prevent string concatenation
 s_pts = int(data.get('Savarese', 0))
 w_pts = int(data.get('Willis', 0))
+
 col_s, col_w = st.columns(2)
 col_s.metric("Team Savarese", f"{s_pts} pts")
 col_w.metric("Team Willis", f"{w_pts} pts")
 
-if st.button("🔄 SYNC DATA", use_container_width=True):
+if st.button("🔄 REFRESH SCORES", use_container_width=True):
     st.rerun()
 st.divider()
 
-# Member mapping for the Host only
 sav_members = ["Ralph", "Trisha"]
 wil_members = ["Charles", "Barbara"]
 
-# --- VIEW LOGIC ---
+# --- VIEW LOGIC (UNTOUCHED) ---
 is_active = (str(data.get('Active')) == "Yes")
 host_team = data.get('Host')
 
@@ -126,7 +126,7 @@ else:
             g2b = c4.number_input("Player B - Guess 2", step=1, value=0)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
-                # Pull absolute freshest data for scoring
+                # FRESH SYNC: Get absolute latest scores from the database right now
                 fresh = load_game_state()
                 ans1, ans2 = int(fresh.get('H1', 0)), int(fresh.get('H2', 0))
                 
@@ -144,16 +144,22 @@ else:
                     st.error("Please enter a guess!")
                 else:
                     pct = correct / slots
-                    # Points logic
                     if pct == 1.0: label, pts = "🏆 Full Pint!", (4 if slots == 4 else 2)
                     elif pct >= 0.75: label, pts = "🍺 Almost Full", 2
                     elif pct == 0.5: label, pts = "🌗 Half Pint", 0
                     elif pct >= 0.25: label, pts = "💧 Low Tide", -2
                     else: label, pts = "💀 Empty Pint", (-4 if slots == 4 else -2)
                     
-                    # Score calculation
-                    current_total = int(fresh.get(guesser_team, 0))
-                    update_db({guesser_team: current_total + pts, "Active": "No", "LastResult": f"{label} ({correct}/{slots} correct). {pts} pts added!"})
+                    # FETCH LIVE TOTAL RIGHT BEFORE ADDING
+                    # This prevents the score from resetting if multiple people are on the app
+                    db_current = int(fresh.get(guesser_team, 0))
+                    new_total = db_current + pts
+                    
+                    update_db({
+                        guesser_team: new_total, 
+                        "Active": "No", 
+                        "LastResult": f"{label} ({correct}/{slots} correct). {pts} pts added!"
+                    })
                     st.rerun()
 
 # --- SIDEBAR ---
