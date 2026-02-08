@@ -12,7 +12,7 @@ def get_db_url():
         project_id = config['projectId']
         return f"https://{project_id}-default-rtdb.firebaseio.com/game.json"
     except:
-        st.error("Firebase Config missing from Secrets!")
+        st.error("Firebase Config missing!")
         return ""
 
 def save_game_state(data):
@@ -37,7 +37,6 @@ if 'my_team' not in st.session_state:
 
 if st.session_state.my_team is None:
     st.title("🍹 Beverage Ballot")
-    st.subheader("Which team are you on?")
     c1, c2 = st.columns(2)
     if c1.button("Team Savarese", use_container_width=True):
         st.session_state.my_team = "Team Savarese"
@@ -47,38 +46,41 @@ if st.session_state.my_team is None:
         st.rerun()
     st.stop()
 
-# Load Data
 data = load_game_state()
 
 st.title("🍹 Beverage Ballot")
-st.caption(f"Team: **{st.session_state.my_team}**")
+st.caption(f"Logged in as: **{st.session_state.my_team}**")
 
-if st.button("🔄 REFRESH / SYNC", type="primary", use_container_width=True):
+if st.button("🔄 REFRESH SCORES", type="primary", use_container_width=True):
     st.rerun()
 
-# Scoreboard - Ensuring we always have a number to display
+# --- SCOREBOARD ---
 s_score = data.get('Savarese', 0)
 w_score = data.get('Willis', 0)
 c1, c2 = st.columns(2)
-c1.metric("Savarese", f"{s_score}")
-c2.metric("Willis", f"{w_score}")
+c1.metric("Team Savarese", f"{s_score} pts")
+c2.metric("Team Willis", f"{w_score} pts")
 st.divider()
 
 sav_names = ["Ralph", "Trisha"]
 wil_names = ["Charles", "Barbara"]
 
-# --- APP NAVIGATION ---
+# --- ROUND LOGIC ---
 if str(data.get('Active')) != "Yes":
     if data.get('LastResult'):
-        st.success(f"🏁 {data['LastResult']}")
+        st.success(f"{data['LastResult']}")
 
-    st.header("📢 Start a Round")
-    if st.session_state.my_team == "Team Savarese":
-        loc = st.text_input("Where are you?")
+    st.header("📢 Start a New Round")
+    host_choice = st.radio("Who is ordering drinks?", ["Team Savarese", "Team Willis"], horizontal=True)
+    
+    if st.session_state.my_team == host_choice:
+        loc = st.text_input("Location Name")
         img = st.camera_input("Snapshot")
+        
+        host_ppl = sav_names if host_choice == "Team Savarese" else wil_names
         col1, col2 = st.columns(2)
-        d1 = col1.number_input(f"{sav_names[0]}'s #", step=1, value=0)
-        d2 = col2.number_input(f"{sav_names[1]}'s #", step=1, value=0)
+        d1 = col1.number_input(f"{host_ppl[0]}'s #", step=1, value=0)
+        d2 = col2.number_input(f"{host_ppl[1]}'s #", step=1, value=0)
         
         if st.button("🚀 SEND ROUND", use_container_width=True):
             with st.spinner("Broadcasting..."):
@@ -88,57 +90,61 @@ if str(data.get('Active')) != "Yes":
                     r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     p_url = r_img.json().get("secure_url", "")
                 
-                # Setup new round
                 data.update({
-                    "Active": "Yes", "Host": "Team Savarese", "H1": int(d1), "H2": int(d2),
+                    "Active": "Yes", "Host": host_choice, "H1": int(d1), "H2": int(d2),
                     "Loc": loc, "URL": p_url, "LastResult": ""
                 })
                 if save_game_state(data):
                     st.rerun()
     else:
-        st.info("Waiting for Team Savarese to order drinks...")
+        st.info(f"Waiting for **{host_choice}** to set the round...")
 
 else:
     # --- GUESSING SCREEN ---
-    host_team = data.get('Host', 'Team Savarese')
+    host_team = data.get('Host')
     guesser_team = "Team Willis" if host_team == "Team Savarese" else "Team Savarese"
     host_names = sav_names if host_team == "Team Savarese" else wil_names
     
-    st.header(f"🎯 {guesser_team}'s Turn")
-    st.info(f"📍 {host_team} is at {data.get('Loc', 'Unknown')}")
+    st.header(f"🎯 {guesser_team}: Guessing Time!")
+    st.info(f"📍 {host_team} is at {data.get('Loc')}")
     if data.get('URL'): st.image(data['URL'])
     
     if st.session_state.my_team == guesser_team:
         with st.form("guesses"):
-            st.write("Enter your guesses:")
+            st.write(f"Guess {host_names[0]} & {host_names[1]} drinks:")
             c1, c2 = st.columns(2)
             ga1 = c1.number_input(f"Guess A {host_names[0]}", step=1, value=0)
             ga2 = c2.number_input(f"Guess A {host_names[1]}", step=1, value=0)
             c3, c4 = st.columns(2)
             gb1 = c3.number_input(f"Guess B {host_names[0]}", step=1, value=0)
-            gb2 = c4.number_input(f"Guess B {host_names[1]}", value=0, step=1)
+            gb2 = c4.number_input(f"Guess B {host_names[1]}", step=1, value=0)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
-                # Calculate correct answers
-                ans1 = int(data.get('H1', 0))
-                ans2 = int(data.get('H2', 0))
+                ans1, ans2 = int(data.get('H1')), int(data.get('H2'))
                 correct = sum([ga1==ans1, ga2==ans2, gb1==ans1, gb2==ans2])
-                pts = correct - (4 - correct)
                 
-                # Fetch fresh scores from database to be safe
+                # --- NEW PINT SCORING ---
+                if correct == 4:
+                    label, pts = "🏆 Full Pint!", 4
+                elif correct == 3:
+                    label, pts = "🍺 Almost Full", 2
+                elif correct == 2:
+                    label, pts = "🌗 Half Pint", 0
+                elif correct == 1:
+                    label, pts = "💧 Low Tide", -2
+                else:
+                    label, pts = "💀 Empty Pint", -4
+                
                 latest = load_game_state()
-                current_score = latest.get(guesser_team, 0)
-                
-                latest[guesser_team] = current_score + pts
+                latest[guesser_team] = latest.get(guesser_team, 0) + pts
                 latest['Active'] = "No"
-                latest['LastResult'] = f"{guesser_team} got {correct}/4 correct! ({pts} pts). Answers were: {ans1} & {ans2}"
+                latest['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
                 
                 if save_game_state(latest):
-                    st.balloons()
+                    if pts >= 0: st.balloons()
                     st.rerun()
     else:
-        st.warning(f"Waiting for {guesser_team} to guess...")
-        st.write("The screen will update once they submit!")
+        st.warning(f"Waiting for {guesser_team} to finish...")
 
 # --- FOOTER ---
 st.divider()
@@ -146,6 +152,6 @@ if st.button("🚪 Switch Team / Logout"):
     st.session_state.my_team = None
     st.rerun()
 
-if st.sidebar.button("🚨 Reset All Data"):
+if st.sidebar.button("🚨 RESET ALL DATA"):
     save_game_state({"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "", "Loc": "", "URL": "", "LastResult": ""})
     st.rerun()
