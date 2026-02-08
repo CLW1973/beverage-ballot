@@ -1,7 +1,5 @@
 import streamlit as st
-import requests
-import json
-import time
+import requests, json, time
 
 st.set_page_config(page_title="Beverage Ballot", page_icon="🍹")
 
@@ -64,8 +62,30 @@ if not is_active:
                 except: pass
             update_db({"Active": "Yes", "Host": h_choice, "H1": int(d1), "H2": int(d2), "Loc": loc, "URL": url, "LastResult": ""})
             st.rerun()
-    else: st.info(f"Waiting for {h_choice}...")
+    else: st.info(f"Waiting for {h_choice} to start...")
+
 else:
     t_names = sav_m if host_t == "Team Savarese" else wil_m
     g_team = "Team Willis" if host_t == "Team Savarese" else "Team Savarese"
+    
     if st.session_state.my_team == host_t:
+        st.info(f"Waiting for {g_team} to guess your drinks at {data.get('Loc')}...")
+        if data.get('URL'): st.image(data['URL'])
+        if st.button("🔄 Check Result"): st.rerun()
+    else:
+        st.header(f"🎯 {g_team}: Guess!")
+        if data.get('URL'): st.image(data['URL'])
+        with st.form("g_form"):
+            st.subheader("Player A")
+            c1, c2 = st.columns(2)
+            ga1 = c1.number_input(f"A: {t_names[0]}", 0)
+            ga2 = c2.number_input(f"A: {t_names[1]}", 0)
+            st.subheader("Player B")
+            c3, c4 = st.columns(2)
+            gb1 = c3.number_input(f"B: {t_names[0]}", 0)
+            gb2 = c4.number_input(f"B: {t_names[1]}", 0)
+            if st.form_submit_button("✅ SUBMIT"):
+                fresh = load_game()
+                ans1, ans2 = int(fresh.get('H1', 0)), int(fresh.get('H2', 0))
+                cor, slots = 0, 0
+                if ga1 > 0 or
