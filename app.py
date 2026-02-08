@@ -12,7 +12,6 @@ def get_db_url():
         project_id = config['projectId']
         return f"https://{project_id}-default-rtdb.firebaseio.com/game.json"
     except:
-        st.error("Firebase Config missing!")
         return ""
 
 def save_game_state(data):
@@ -37,6 +36,7 @@ if 'my_team' not in st.session_state:
 
 if st.session_state.my_team is None:
     st.title("🍹 Beverage Ballot")
+    st.subheader("Which team are you on?")
     c1, c2 = st.columns(2)
     if c1.button("Team Savarese", use_container_width=True):
         st.session_state.my_team = "Team Savarese"
@@ -46,20 +46,19 @@ if st.session_state.my_team is None:
         st.rerun()
     st.stop()
 
+# Load Data fresh every run
 data = load_game_state()
 
 st.title("🍹 Beverage Ballot")
-st.caption(f"Logged in as: **{st.session_state.my_team}**")
+st.caption(f"Team: **{st.session_state.my_team}**")
 
 if st.button("🔄 REFRESH SCORES", type="primary", use_container_width=True):
     st.rerun()
 
 # --- SCOREBOARD ---
-s_score = data.get('Savarese', 0)
-w_score = data.get('Willis', 0)
 c1, c2 = st.columns(2)
-c1.metric("Team Savarese", f"{s_score} pts")
-c2.metric("Team Willis", f"{w_score} pts")
+c1.metric("Team Savarese", f"{data.get('Savarese', 0)} pts")
+c2.metric("Team Willis", f"{data.get('Willis', 0)} pts")
 st.divider()
 
 sav_names = ["Ralph", "Trisha"]
@@ -90,6 +89,7 @@ if str(data.get('Active')) != "Yes":
                     r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     p_url = r_img.json().get("secure_url", "")
                 
+                # Update DB - Keeping existing scores!
                 data.update({
                     "Active": "Yes", "Host": host_choice, "H1": int(d1), "H2": int(d2),
                     "Loc": loc, "URL": p_url, "LastResult": ""
@@ -120,27 +120,27 @@ else:
             gb2 = c4.number_input(f"Guess B {host_names[1]}", step=1, value=0)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
-                ans1, ans2 = int(data.get('H1')), int(data.get('H2'))
+                # 1. Load FRESH data right now to get the current scores
+                latest_db = load_game_state()
+                
+                ans1, ans2 = int(latest_db.get('H1', 0)), int(latest_db.get('H2', 0))
                 correct = sum([ga1==ans1, ga2==ans2, gb1==ans1, gb2==ans2])
                 
-                # --- NEW PINT SCORING ---
-                if correct == 4:
-                    label, pts = "🏆 Full Pint!", 4
-                elif correct == 3:
-                    label, pts = "🍺 Almost Full", 2
-                elif correct == 2:
-                    label, pts = "🌗 Half Pint", 0
-                elif correct == 1:
-                    label, pts = "💧 Low Tide", -2
-                else:
-                    label, pts = "💀 Empty Pint", -4
+                # 2. Calculate Points
+                if correct == 4: label, pts = "🏆 Full Pint!", 4
+                elif correct == 3: label, pts = "🍺 Almost Full", 2
+                elif correct == 2: label, pts = "🌗 Half Pint", 0
+                elif correct == 1: label, pts = "💧 Low Tide", -2
+                else: label, pts = "💀 Empty Pint", -4
                 
-                latest = load_game_state()
-                latest[guesser_team] = latest.get(guesser_team, 0) + pts
-                latest['Active'] = "No"
-                latest['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
+                # 3. Apply to the FRESH database scores
+                current_total = int(latest_db.get(guesser_team, 0))
+                latest_db[guesser_team] = current_total + pts
+                latest_db['Active'] = "No"
+                latest_db['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
                 
-                if save_game_state(latest):
+                # 4. Save back to Firebase
+                if save_game_state(latest_db):
                     if pts >= 0: st.balloons()
                     st.rerun()
     else:
