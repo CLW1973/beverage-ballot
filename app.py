@@ -14,24 +14,30 @@ def get_db_url():
     except:
         return ""
 
-def save_game_state(data):
-    try:
-        r = requests.put(get_db_url(), json=data, timeout=10)
-        return r.status_code == 200
-    except:
-        return False
-
 def load_game_state():
     try:
-        # Adding a timestamp to the URL to bypass any phone-level caching
-        r = requests.get(f"{get_db_url()}?cb={int(time.time())}", timeout=5)
+        # Force a fresh fetch by adding a unique query parameter
+        url = f"{get_db_url()}?nocache={time.time()}"
+        r = requests.get(url, timeout=5)
         if r.status_code == 200 and r.json():
             return r.json()
     except:
         pass
     return {"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "", "Loc": "", "URL": "", "LastResult": ""}
 
-# --- IDENTITY LOGIC ---
+def save_game_state(new_data):
+    try:
+        # We fetch the absolute latest data from the server first
+        current_cloud_data = load_game_state()
+        # Merge the new round data into the cloud data (preserves scores)
+        current_cloud_data.update(new_data)
+        
+        r = requests.put(get_db_url(), json=current_cloud_data, timeout=10)
+        return r.status_code == 200
+    except:
+        return False
+
+# --- IDENTITY & SESSION ---
 if 'my_team' not in st.session_state:
     st.session_state.my_team = None
 
@@ -46,24 +52,22 @@ if st.session_state.my_team is None:
         st.rerun()
     st.stop()
 
-# --- THE "ALWAYS FRESH" FETCH ---
-# We load data here to ensure the metrics below are never stale
+# LOAD DATA
 data = load_game_state()
 
 st.title("🍹 Beverage Ballot")
 st.caption(f"Team: **{st.session_state.my_team}**")
 
-if st.button("🔄 REFRESH ALL DATA", type="primary", use_container_width=True):
+if st.button("🔄 FORCE SYNC ALL PHONES", type="primary", use_container_width=True):
     st.rerun()
 
-# --- SCOREBOARD ---
-# These variables now pull directly from the 'data' we just fetched
-sav_total = data.get('Savarese', 0)
-wil_total = data.get('Willis', 0)
+# --- THE SCOREBOARD (The Source of Truth) ---
+sav_score = int(data.get('Savarese', 0))
+wil_score = int(data.get('Willis', 0))
 
-c1, c2 = st.columns(2)
-c1.metric("Team Savarese", f"{sav_total} pts")
-c2.metric("Team Willis", f"{wil_total} pts")
+col_s, col_w = st.columns(2)
+col_s.metric("Team Savarese", f"{sav_score} pts")
+col_w.metric("Team Willis", f"{wil_score} pts")
 st.divider()
 
 sav_names = ["Ralph", "Trisha"]
@@ -75,16 +79,15 @@ if str(data.get('Active')) != "Yes":
         st.success(f"{data['LastResult']}")
 
     st.header("📢 Start a New Round")
-    host_choice = st.radio("Who is ordering drinks?", ["Team Savarese", "Team Willis"], horizontal=True)
+    host_choice = st.radio("Who is ordering?", ["Team Savarese", "Team Willis"], horizontal=True)
     
     if st.session_state.my_team == host_choice:
-        loc = st.text_input("Location Name")
-        img = st.camera_input("Snapshot")
-        
-        host_ppl = sav_names if host_choice == "Team Savarese" else wil_names
-        col1, col2 = st.columns(2)
-        d1 = col1.number_input(f"{host_ppl[0]}'s #", step=1, value=0)
-        d2 = col2.number_input(f"{host_ppl[1]}'s #", step=1, value=0)
+        loc = st.text_input("Location?")
+        img = st.camera_input("Snap a Photo")
+        h_ppl = sav_names if host_choice == "Team Savarese" else wil_names
+        ca, cb = st.columns(2)
+        d1 = ca.number_input(f"{h_ppl[0]}'s #", step=1, value=0)
+        d2 = cb.number_input(f"{h_ppl[1]}'s #", step=1, value=0)
         
         if st.button("🚀 SEND ROUND", use_container_width=True):
             with st.spinner("Uploading..."):
@@ -94,67 +97,65 @@ if str(data.get('Active')) != "Yes":
                     r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     p_url = r_img.json().get("secure_url", "")
                 
-                # Fetch fresh scores so we don't reset them to 0 when starting a round
-                fresh_data = load_game_state()
-                fresh_data.update({
+                # ONLY update round details, do NOT touch Savarese/Willis scores here
+                round_update = {
                     "Active": "Yes", "Host": host_choice, "H1": int(d1), "H2": int(d2),
                     "Loc": loc, "URL": p_url, "LastResult": ""
-                })
-                if save_game_state(fresh_data):
+                }
+                if save_game_state(round_update):
                     st.rerun()
     else:
-        st.info(f"Waiting for **{host_choice}** to set the round...")
+        st.info(f"Waiting for **{host_choice}**...")
 
 else:
     # --- GUESSING SCREEN ---
-    host_team = data.get('Host')
-    guesser_team = "Team Willis" if host_team == "Team Savarese" else "Team Savarese"
-    host_names = sav_names if host_team == "Team Savarese" else wil_names
+    h_team = data.get('Host')
+    g_team = "Team Willis" if h_team == "Team Savarese" else "Team Savarese"
+    h_names = sav_names if h_team == "Team Savarese" else wil_names
     
-    st.header(f"🎯 {guesser_team}: Guessing Time!")
-    st.info(f"📍 {host_team} is at {data.get('Loc')}")
+    st.header(f"🎯 {g_team}: Guessing Time!")
+    st.info(f"📍 {h_team} is at {data.get('Loc')}")
     if data.get('URL'): st.image(data['URL'])
     
-    if st.session_state.my_team == guesser_team:
-        with st.form("guesses"):
-            st.write(f"Guess {host_names[0]} & {host_names[1]} drinks:")
+    if st.session_state.my_team == g_team:
+        with st.form("guess_form"):
             c1, c2 = st.columns(2)
-            ga1 = c1.number_input(f"Guess A {host_names[0]}", step=1, value=0)
-            ga2 = c2.number_input(f"Guess A {host_names[1]}", step=1, value=0)
+            ga1 = c1.number_input(f"Guess {h_names[0]}", step=1, value=0)
+            ga2 = c2.number_input(f"Guess {h_names[1]}", step=1, value=0)
             c3, c4 = st.columns(2)
-            gb1 = c3.number_input(f"Guess B {host_names[0]}", step=1, value=0)
-            gb2 = c4.number_input(f"Guess B {host_names[1]}", step=1, value=0)
+            gb1 = c3.number_input(f"Guess {h_names[0]} (B)", step=1, value=0)
+            gb2 = c4.number_input(f"Guess {h_names[1]} (B)", step=1, value=0)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
-                # 1. Fetch CURRENT database state
-                final_sync = load_game_state()
-                
-                ans1, ans2 = int(final_sync.get('H1', 0)), int(final_sync.get('H2', 0))
+                # Reload to get freshest answers and scores
+                fresh = load_game_state()
+                ans1, ans2 = int(fresh.get('H1', 0)), int(fresh.get('H2', 0))
                 correct = sum([ga1==ans1, ga2==ans2, gb1==ans1, gb2==ans2])
                 
-                # 2. Points
+                # Scoring Logic
                 if correct == 4: label, pts = "🏆 Full Pint!", 4
                 elif correct == 3: label, pts = "🍺 Almost Full", 2
                 elif correct == 2: label, pts = "🌗 Half Pint", 0
                 elif correct == 1: label, pts = "💧 Low Tide", -2
                 else: label, pts = "💀 Empty Pint", -4
                 
-                # 3. Apply to the current database totals
-                old_total = int(final_sync.get(guesser_team, 0))
-                final_sync[guesser_team] = old_total + pts
-                final_sync['Active'] = "No"
-                final_sync['LastResult'] = f"{label}! {guesser_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
+                # Update Score CUMULATIVELY
+                new_total = int(fresh.get(g_team, 0)) + pts
                 
-                # 4. Save
-                if save_game_state(final_sync):
+                final_update = {
+                    g_team: new_total,
+                    "Active": "No",
+                    "LastResult": f"{label}! {g_team} got {correct}/4 correct ({pts} pts). Answers: {ans1} & {ans2}"
+                }
+                if save_game_state(final_update):
                     if pts >= 0: st.balloons()
                     st.rerun()
     else:
-        st.warning(f"Waiting for {guesser_team} to finish...")
+        st.warning(f"Waiting for {g_team} to guess...")
 
 # --- FOOTER ---
 st.divider()
-if st.button("🚪 Logout / Switch Team"):
+if st.button("🚪 Switch Team / Logout"):
     st.session_state.my_team = None
     st.rerun()
 
