@@ -2,18 +2,18 @@ import streamlit as st
 import requests
 import time
 import json
+import random
 
 st.set_page_config(page_title="Beverage Ballot", page_icon="🍹")
 
-# --- THE CACHE BREAKER SYNC ---
+# --- SYNC CORE ---
 def save_game_state(data):
     try:
-        # We save to a FIXED name for the latest state, but we force an overwrite
         url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload"
         json_data = json.dumps(data)
         payload = {
             "upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET'],
-            "public_id": "willis_savarese_state_v2",
+            "public_id": "willis_savarese_state_final",
             "resource_type": "raw",
             "overwrite": "true",
             "invalidate": "true" 
@@ -26,9 +26,8 @@ def save_game_state(data):
 
 def load_game_state():
     try:
-        # We add a high-precision timestamp to the URL so the browser CANNOT cache it
         t = int(time.time())
-        url = f"https://res.cloudinary.com/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload/willis_savarese_state_v2.json?t={t}"
+        url = f"https://res.cloudinary.com/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload/willis_savarese_state_final.json?t={t}"
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
             return r.json()
@@ -36,25 +35,19 @@ def load_game_state():
         pass
     return {"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "Team Savarese", "Loc": "", "URL": ""}
 
-# --- APP STARTUP ---
+# Load data
 if 'data' not in st.session_state:
     st.session_state.data = load_game_state()
 
-# Sidebar Reset
-with st.sidebar:
-    if st.button("🚨 Reset & Clear Cache"):
-        st.session_state.data = {"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "Team Savarese", "Loc": "", "URL": ""}
-        save_game_state(st.session_state.data)
-        st.rerun()
+data = st.session_state.data
 
+# --- TOP NAVIGATION ---
 st.title("🍹 Beverage Ballot")
 
-# --- GLOBAL REFRESH ---
+# Sync Button
 if st.button("🔄 REFRESH / SYNC", type="primary", use_container_width=True):
     st.session_state.data = load_game_state()
     st.rerun()
-
-data = st.session_state.data
 
 # Scoreboard
 c1, c2 = st.columns(2)
@@ -62,25 +55,25 @@ c1.metric("Team Savarese", f"{data.get('Savarese', 0)} pts")
 c2.metric("Team Willis", f"{data.get('Willis', 0)} pts")
 st.divider()
 
+# --- THE FIX: MANUAL SCREEN SWITCH ---
+mode = st.radio("Select View:", ["Start Round", "Guessing Screen"], horizontal=True, label_visibility="collapsed")
+
 sav_names = ["Ralph", "Trisha"]
 wil_names = ["Charles", "Barbara"]
 
-# --- APP LOGIC ---
-if data.get('Active') == "No":
+if mode == "Start Round":
     st.header("📢 Start a Round")
-    
-    # Selection Fix: Set index based on previous choice
     host_choice = st.radio("Who is ordering?", ["Team Savarese", "Team Willis"], horizontal=True)
-    loc = st.text_input("Location?", value=data.get('Loc', ""))
+    loc = st.text_input("Location Name")
     img = st.camera_input("Snap the Menu")
     
     p_names = sav_names if host_choice == "Team Savarese" else wil_names
     col_a, col_b = st.columns(2)
-    d1 = col_a.number_input(f"{p_names[0]}'s #", value=0, step=1)
-    d2 = col_b.number_input(f"{p_names[1]}'s #", value=0, step=1)
+    d1 = col_a.number_input(f"{p_names[0]}'s Drink #", value=0, step=1)
+    d2 = col_b.number_input(f"{p_names[1]}'s Drink #", value=0, step=1)
     
     if st.button("🚀 SEND ROUND", use_container_width=True):
-        with st.spinner("Pushing New Data..."):
+        with st.spinner("Pushing to Cloud..."):
             p_url = ""
             if img:
                 up_url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload"
@@ -99,42 +92,53 @@ if data.get('Active') == "No":
             }
             if save_game_state(new_state):
                 st.session_state.data = new_state
+                st.success("Round Live! Switch to 'Guessing Screen'")
                 st.rerun()
 
 else:
     # --- GUESSING SCREEN ---
-    guesser = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
-    h_names = sav_names if data['Host'] == "Team Savarese" else wil_names
-    
-    st.header(f"🎯 {guesser}: Your Turn!")
-    st.info(f"📍 {data['Host']} is at {data['Loc']}")
-    
-    if data.get('URL'):
-        # Adding timestamp to image URL to force refresh
-        st.image(f"{data['URL']}?t={time.time()}")
-    
-    with st.form("guess_form"):
-        st.write("Enter whole numbers:")
-        c1, c2 = st.columns(2)
-        ga1 = c1.number_input(f"Guess A {h_names[0]}", value=0, step=1)
-        ga2 = c2.number_input(f"Guess A {h_names[1]}", value=0, step=1)
+    if data.get('Active') == "No":
+        st.warning("No active round found. Hit 'Refresh' or start a new round.")
+    else:
+        guesser = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
+        h_names = sav_names if data['Host'] == "Team Savarese" else wil_names
         
-        c3, c4 = st.columns(2)
-        gb1 = c3.number_input(f"Guess B {h_names[0]}", value=0, step=1)
-        gb2 = c4.number_input(f"Guess B {h_names[1]}", value=0, step=1)
+        st.header(f"🎯 {guesser}: Your Turn!")
+        st.info(f"📍 {data['Host']} is at {data['Loc']}")
         
-        if st.form_submit_button("✅ SUBMIT FINAL GUESSES", use_container_width=True):
-            correct = sum([ga1 == data['H1'], ga2 == data['H2'], gb1 == data['H1'], gb2 == data['H2']])
-            swing = correct - (4 - correct)
+        if data.get('URL'):
+            st.image(f"{data['URL']}?t={time.time()}")
+        
+        with st.form("guess_form"):
+            st.write("Enter whole numbers for guesses:")
+            c1, c2 = st.columns(2)
+            ga1 = c1.number_input(f"Guess A {h_names[0]}", value=0, step=1)
+            ga2 = c2.number_input(f"Guess A {h_names[1]}", value=0, step=1)
             
-            # Update fresh state
-            current = load_game_state()
-            current[guesser] += swing
-            current['Active'] = "No"
-            current['Loc'] = ""
-            current['URL'] = ""
+            c3, c4 = st.columns(2)
+            gb1 = c3.number_input(f"Guess B {h_names[0]}", value=0, step=1)
+            gb2 = c4.number_input(f"Guess B {h_names[1]}", value=0, step=1)
             
-            if save_game_state(current):
-                st.balloons() if swing > 0 else None
-                st.session_state.data = current
-                st.rerun()
+            if st.form_submit_button("✅ SUBMIT FINAL GUESSES", use_container_width=True):
+                # Calculate
+                correct = sum([ga1 == data['H1'], ga2 == data['H2'], gb1 == data['H1'], gb2 == data['H2']])
+                swing = correct - (4 - correct)
+                
+                # Fresh pull for scores
+                latest = load_game_state()
+                latest[guesser] += swing
+                latest['Active'] = "No"
+                latest['Loc'] = ""
+                latest['URL'] = ""
+                
+                if save_game_state(latest):
+                    st.success(f"Correct: {data['H1']} & {data['H2']}. Score change: {swing}")
+                    if swing > 0: st.balloons()
+                    time.sleep(3)
+                    st.session_state.data = latest
+                    st.rerun()
+
+st.divider()
+if st.sidebar.button("🚨 Reset Scores"):
+    save_game_state({"Savarese": 0, "Willis": 0, "Active": "No", "H1": 0, "H2": 0, "Host": "Team Savarese", "Loc": "", "URL": ""})
+    st.rerun()
