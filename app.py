@@ -34,9 +34,11 @@ if st.session_state.my_team is None:
     st.title("🍹 Beverage Ballot")
     c1, c2 = st.columns(2)
     if c1.button("Team Savarese", use_container_width=True): 
-        st.session_state.my_team = "Team Savarese"; st.rerun()
+        st.session_state.my_team = "Team Savarese"
+        st.rerun()
     if c2.button("Team Willis", use_container_width=True): 
-        st.session_state.my_team = "Team Willis"; st.rerun()
+        st.session_state.my_team = "Team Willis"
+        st.rerun()
     st.stop()
 
 # FORCE FRESH LOAD
@@ -90,8 +92,13 @@ if not is_active:
                 p_url = r_img.json().get("secure_url", "")
             
             update_db({
-                "Active": "Yes", "Host": host_choice, "H1": int(d1), "H2": int(d2),
-                "Loc": loc, "URL": p_url, "LastResult": ""
+                "Active": "Yes", 
+                "Host": host_choice, 
+                "H1": int(d1), 
+                "H2": int(d2),
+                "Loc": loc, 
+                "URL": p_url, 
+                "LastResult": ""
             })
             st.rerun()
     else:
@@ -102,26 +109,21 @@ else:
     guesser_team = "Team Willis" if host_team == "Team Savarese" else "Team Savarese"
     h_names = sav_members if host_team == "Team Savarese" else wil_members
 
-    # 1. HOST VIEW (Waiting)
+    # 1. HOST VIEW (The Team that took the picture)
     if st.session_state.my_team == host_team:
         st.header("⏳ Waiting for Guessers")
-        st.info(f"You sent a round from **{data.get('Loc')}**. Waiting for **{guesser_team}** to submit their guesses.")
-        if data.get('URL'): st.image(data['URL'], caption="Your drink photo")
-        if st.button("🔄 Check if they guessed"): st.rerun()
+        st.info(f"Round sent from **{data.get('Loc')}**. Waiting for **{guesser_team}** to guess.")
+        if data.get('URL'): 
+            st.image(data['URL'], caption="Your drink photo")
+        if st.button("🔄 Check for Guesses"): 
+            st.rerun()
 
-    # 2. GUESSER VIEW (Active)
+    # 2. GUESSER VIEW (The Team that needs to guess)
     else:
         st.header(f"🎯 {guesser_team}: Guess!")
-        if data.get('URL'): st.image(data['URL'])
+        if data.get('URL'): 
+            st.image(data['URL'])
         st.write(f"📍 Location: **{data.get('Loc')}**")
         
         with st.form("guess_form"):
-            st.markdown(f"### Player 1: {h_names[0]}")
-            c1, c2 = st.columns(2)
-            g1_a = c1.number_input(f"Guess 1 for {h_names[0]}", step=1, value=0, key="g1a")
-            g1_b = c2.number_input(f"Guess 2 for {h_names[0]}", step=1, value=0, key="g1b")
-            
-            st.markdown(f"### Player 2: {h_names[1]}")
-            c3, c4 = st.columns(2)
-            g2_a = c3.number_input(f"Guess 1 for {h_names[1]}", step=1, value=0, key="g2a")
-            g2_b = c4.number_input(f"Guess 2 for {h_names
+            st.markdown(f"### Player 1: {h_
