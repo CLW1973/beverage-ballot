@@ -7,9 +7,13 @@ st.set_page_config(page_title="Beverage Ballot", page_icon="🍹")
 
 # --- FIREBASE ENGINE ---
 def get_db_url():
-    config = json.loads(st.secrets['FIREBASE_CONFIG'])
-    project_id = config['projectId']
-    return f"https://{project_id}-default-rtdb.firebaseio.com/game.json"
+    try:
+        config = json.loads(st.secrets['FIREBASE_CONFIG'])
+        project_id = config['projectId']
+        return f"https://{project_id}-default-rtdb.firebaseio.com/game.json"
+    except:
+        st.error("Firebase Config missing from Secrets!")
+        return ""
 
 def save_game_state(data):
     try:
@@ -49,22 +53,22 @@ data = load_game_state()
 st.title("🍹 Beverage Ballot")
 st.caption(f"Team: **{st.session_state.my_team}**")
 
-# --- SYNC BUTTON ---
 if st.button("🔄 REFRESH / SYNC", type="primary", use_container_width=True):
     st.rerun()
 
-# Scoreboard
+# Scoreboard - Ensuring we always have a number to display
+s_score = data.get('Savarese', 0)
+w_score = data.get('Willis', 0)
 c1, c2 = st.columns(2)
-c1.metric("Savarese", f"{data.get('Savarese', 0)}")
-c2.metric("Willis", f"{data.get('Willis', 0)}")
+c1.metric("Savarese", f"{s_score}")
+c2.metric("Willis", f"{w_score}")
 st.divider()
 
 sav_names = ["Ralph", "Trisha"]
 wil_names = ["Charles", "Barbara"]
 
 # --- APP NAVIGATION ---
-if data.get('Active') == "No":
-    # Show previous round outcome
+if str(data.get('Active')) != "Yes":
     if data.get('LastResult'):
         st.success(f"🏁 {data['LastResult']}")
 
@@ -84,6 +88,7 @@ if data.get('Active') == "No":
                     r_img = requests.post(up_url, data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     p_url = r_img.json().get("secure_url", "")
                 
+                # Setup new round
                 data.update({
                     "Active": "Yes", "Host": "Team Savarese", "H1": int(d1), "H2": int(d2),
                     "Loc": loc, "URL": p_url, "LastResult": ""
@@ -95,38 +100,45 @@ if data.get('Active') == "No":
 
 else:
     # --- GUESSING SCREEN ---
-    guesser = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
-    h_names = sav_names if data['Host'] == "Team Savarese" else wil_names
+    host_team = data.get('Host', 'Team Savarese')
+    guesser_team = "Team Willis" if host_team == "Team Savarese" else "Team Savarese"
+    host_names = sav_names if host_team == "Team Savarese" else wil_names
     
-    st.header(f"🎯 {guesser}'s Turn")
-    st.info(f"📍 {data['Host']} is at {data['Loc']}")
+    st.header(f"🎯 {guesser_team}'s Turn")
+    st.info(f"📍 {host_team} is at {data.get('Loc', 'Unknown')}")
     if data.get('URL'): st.image(data['URL'])
     
-    if st.session_state.my_team == guesser:
+    if st.session_state.my_team == guesser_team:
         with st.form("guesses"):
             st.write("Enter your guesses:")
             c1, c2 = st.columns(2)
-            ga1 = c1.number_input(f"Guess A {h_names[0]}", step=1, value=0)
-            ga2 = c2.number_input(f"Guess A {h_names[1]}", step=1, value=0)
+            ga1 = c1.number_input(f"Guess A {host_names[0]}", step=1, value=0)
+            ga2 = c2.number_input(f"Guess A {host_names[1]}", step=1, value=0)
             c3, c4 = st.columns(2)
-            gb1 = c3.number_input(f"Guess B {h_names[0]}", step=1, value=0)
-            gb2 = c4.number_input(f"Guess B {h_names[1]}", step=1, value=0)
+            gb1 = c3.number_input(f"Guess B {host_names[0]}", step=1, value=0)
+            gb2 = c4.number_input(f"Guess B {host_names[1]}", value=0, step=1)
             
             if st.form_submit_button("✅ SUBMIT GUESSES", use_container_width=True):
                 # Calculate correct answers
-                correct = sum([ga1==data['H1'], ga2==data['H2'], gb1==data['H1'], gb2==data['H2']])
+                ans1 = int(data.get('H1', 0))
+                ans2 = int(data.get('H2', 0))
+                correct = sum([ga1==ans1, ga2==ans2, gb1==ans1, gb2==ans2])
                 pts = correct - (4 - correct)
                 
-                # Update Score and Reset
-                data[guesser] += pts
-                data['Active'] = "No"
-                data['LastResult'] = f"{guesser} got {correct}/4 correct! ({pts} pts). Answers: {data['H1']} & {data['H2']}"
+                # Fetch fresh scores from database to be safe
+                latest = load_game_state()
+                current_score = latest.get(guesser_team, 0)
                 
-                if save_game_state(data):
+                latest[guesser_team] = current_score + pts
+                latest['Active'] = "No"
+                latest['LastResult'] = f"{guesser_team} got {correct}/4 correct! ({pts} pts). Answers were: {ans1} & {ans2}"
+                
+                if save_game_state(latest):
+                    st.balloons()
                     st.rerun()
     else:
-        st.warning(f"Waiting for {guesser} to guess...")
-        st.write("You are 'view-only' until the guesses are in.")
+        st.warning(f"Waiting for {guesser_team} to guess...")
+        st.write("The screen will update once they submit!")
 
 # --- FOOTER ---
 st.divider()
