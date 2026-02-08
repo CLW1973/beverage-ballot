@@ -5,19 +5,16 @@ import json
 
 st.set_page_config(page_title="Beverage Ballot", page_icon="🍹")
 
-# --- CLOUDINARY UTILS ---
-def get_cloudinary_url(filename):
-    return f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload"
-
+# --- CLOUDINARY SYNC ---
 def save_game_state(data):
     try:
-        url = get_cloudinary_url("game_state.json")
-        # Convert dict to string then bytes
+        url = f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload"
         json_data = json.dumps(data)
         payload = {
             "upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET'],
             "public_id": "willis_savarese_game_state",
-            "resource_type": "raw"
+            "resource_type": "raw",
+            "overwrite": True
         }
         files = {"file": ("game_state.json", json_data)}
         r = requests.post(url, data=payload, files=files)
@@ -27,9 +24,7 @@ def save_game_state(data):
 
 def load_game_state():
     try:
-        # Fetch the raw JSON file from your Cloudinary
         url = f"https://res.cloudinary.com/{st.secrets['CLOUDINARY_CLOUD_NAME']}/raw/upload/willis_savarese_game_state.json"
-        # Adding a timestamp to bypass cache
         r = requests.get(f"{url}?t={time.time()}")
         if r.status_code == 200:
             return r.json()
@@ -47,18 +42,14 @@ def upload_image(image_file):
     except:
         return None
 
-# Initial Load
-if 'game_data' not in st.session_state:
-    st.session_state.game_data = load_game_state()
+# Sync state
+data = load_game_state()
 
 st.title("🍹 Beverage Ballot")
 
-# --- REFRESH BUTTON (Team Willis must use this) ---
+# --- REFRESH ---
 if st.button("🔄 REFRESH / SYNC GAME", type="primary", use_container_width=True):
-    st.session_state.game_data = load_game_state()
     st.rerun()
-
-data = st.session_state.game_data
 
 # --- SCOREBOARD ---
 c1, c2 = st.columns(2)
@@ -66,66 +57,79 @@ c1.metric("Team Savarese", f"{data.get('Savarese', 0)} pts")
 c2.metric("Team Willis", f"{data.get('Willis', 0)} pts")
 st.divider()
 
-savarese_players = ["Ralph", "Trisha"]
-willis_players = ["Charles", "Barbara"]
+sav_names = ["Ralph", "Trisha"]
+wil_names = ["Charles", "Barbara"]
 
-# --- APP LOGIC ---
 if data.get('Active_Round') == "No":
     st.header("📢 Start a Round")
     h_team = st.radio("Who is ordering?", ["Team Savarese", "Team Willis"], horizontal=True)
     loc = st.text_input("Where are you?")
     img = st.camera_input("Snap the Menu/Drinks")
     
-    p_names = savarese_players if h_team == "Team Savarese" else willis_players
+    # Ordering names
+    p_names = sav_names if h_team == "Team Savarese" else wil_names
     col_a, col_b = st.columns(2)
-    d1 = col_a.number_input(f"{p_names[0]}'s #", value=0, step=1)
-    d2 = col_b.number_input(f"{p_names[1]}'s #", value=0, step=1)
+    d1 = col_a.number_input(f"{p_names[0]}'s Drink #", value=0, step=1)
+    d2 = col_b.number_input(f"{p_names[1]}'s Drink #", value=0, step=1)
     
     if st.button("🚀 SEND ROUND", use_container_width=True):
-        with st.spinner("Syncing to Cloud..."):
-            photo_url = upload_image(img) if img else ""
+        with st.spinner("Syncing..."):
+            p_url = upload_image(img) if img else ""
             data.update({
                 "Active_Round": "Yes", "Host": h_team,
-                "Hidden1": d1, "Hidden2": d2, "Location": loc, "PhotoURL": photo_url
+                "Hidden1": int(d1), "Hidden2": int(d2), "Location": loc, "PhotoURL": p_url
             })
             if save_game_state(data):
                 st.success("Round sent! Tell the others to Refresh.")
                 time.sleep(1)
                 st.rerun()
-            else:
-                st.error("Error saving to Cloudinary. Check your Secrets.")
 
 else:
     # --- GUESSING SCREEN ---
-    guesser = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
-    host_p = savarese_players if data['Host'] == "Team Savarese" else willis_players
+    guesser_team = "Team Willis" if data['Host'] == "Team Savarese" else "Team Savarese"
+    host_names = sav_names if data['Host'] == "Team Savarese" else wil_names
+    guesser_names = wil_names if guesser_team == "Team Willis" else sav_names
     
-    st.header(f"🎯 {guesser}: Your Turn!")
+    st.header(f"🎯 {guesser_team}: Your Turn!")
     st.info(f"📍 {data['Host']} is at {data['Location']}")
     
     if data.get('PhotoURL'):
         st.image(data['PhotoURL'])
     
-    st.write("Each person enters 2 guesses:")
-    g1 = st.number_input(f"Guess A for {host_p[0]}", key="g1")
-    g2 = st.number_input(f"Guess B for {host_p[1]}", key="g2")
-    g3 = st.number_input(f"Guess C for {host_p[0]}", key="g3")
-    g4 = st.number_input(f"Guess D for {host_p[1]}", key="g4")
+    st.write("Enter whole numbers for guesses:")
+    
+    # Custom Labels as requested
+    col1, col2 = st.columns(2)
+    g1 = col1.number_input(f"Guess A {host_names[0]}", value=0, step=1, key="g1")
+    g2 = col2.number_input(f"Guess A {host_names[1]}", value=0, step=1, key="g2")
+    
+    col3, col4 = st.columns(2)
+    g3 = col3.number_input(f"Guess B {host_names[0]}", value=0, step=1, key="g3")
+    g4 = col4.number_input(f"Guess B {host_names[1]}", value=0, step=1, key="g4")
 
     if st.button("✅ SUBMIT FINAL GUESSES", use_container_width=True):
-        correct = sum([g1 == data['Hidden1'], g2 == data['Hidden2'], g3 == data['Hidden1'], g4 == data['Hidden2']])
+        # Math: Compare guesses to Hidden1 (Ralph/Charles) and Hidden2 (Trisha/Barbara)
+        correct = 0
+        if g1 == data['Hidden1']: correct += 1
+        if g2 == data['Hidden2']: correct += 1
+        if g3 == data['Hidden1']: correct += 1
+        if g4 == data['Hidden2']: correct += 1
+        
+        # Scoring logic: +1 for right, -1 for wrong (4 total guesses)
         swing = correct - (4 - correct)
         
-        data[guesser] += swing
-        data['Active_Round'] = "No"
+        # Update scores
+        current_data = load_game_state() # Fresh pull to ensure scores are right
+        current_data[guesser_team] += swing
+        current_data['Active_Round'] = "No"
         
-        if save_game_state(data):
-            st.write(f"Correct numbers: {data['Hidden1']} & {data['Hidden2']}")
+        if save_game_state(current_data):
+            st.success(f"Correct numbers: {data['Hidden1']} & {data['Hidden2']}")
             if swing > 0: st.balloons()
             time.sleep(3)
             st.rerun()
 
 st.divider()
-if st.button("🚨 Reset All Data"):
+if st.sidebar.button("🚨 Reset Scores"):
     save_game_state({"Savarese": 0, "Willis": 0, "Active_Round": "No", "Hidden1": 0, "Hidden2": 0, "Host": "", "Location": "", "PhotoURL": ""})
     st.rerun()
