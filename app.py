@@ -30,11 +30,18 @@ if st.session_state.my_team is None:
         st.rerun()
     st.stop()
 
+# --- LOAD DATA ---
 data = load_game()
 if not data: data = {"Savarese": 0, "Willis": 0, "Active": "No"}
 
 st.title("🍹 Beverage Ballot")
-st.caption(f"Logged in as: {st.session_state.my_team}")
+
+# --- RESET BUTTON (MOVED TO TOP FOR SAFETY) ---
+if st.button("🚨 RESET ALL SCORES", use_container_width=True):
+    update_db({"Savarese": 0, "Willis": 0, "Active": "No", "LastResult": "Reset!"})
+    st.rerun()
+
+st.divider()
 
 # --- SCOREBOARD ---
 s_pts, w_pts = int(data.get('Savarese', 0)), int(data.get('Willis', 0))
@@ -65,9 +72,7 @@ if not is_active:
                     r_i = requests.post(f"https://api.cloudinary.com/v1_1/{st.secrets['CLOUDINARY_CLOUD_NAME']}/image/upload", data={"upload_preset": st.secrets['CLOUDINARY_UPLOAD_PRESET']}, files={"file": img})
                     url = r_i.json().get("secure_url", "")
                 except: pass
-            # Split payload to avoid truncation errors
-            upd = {"Active": "Yes", "Host": h_choice, "H1": int(d1), "H2": int(d2)}
-            upd.update({"Loc": loc, "URL": url, "LastResult": ""})
+            upd = {"Active": "Yes", "Host": h_choice, "H1": int(d1), "H2": int(d2), "Loc": loc, "URL": url, "LastResult": ""}
             update_db(upd)
             st.rerun()
     else: st.info(f"Waiting for {h_choice} to start...")
@@ -105,3 +110,9 @@ else:
                     if gb2 == ans2: cor += 1
                 if slots > 0:
                     pct = cor / slots
+                    if pct == 1.0: lbl, pts = "🏆 Full Pint!", (4 if slots == 4 else 2)
+                    elif pct >= 0.5: lbl, pts = "🌗 Half Pint", 0
+                    else: lbl, pts = "💀 Empty Pint", (-4 if slots == 4 else -2)
+                    cur_tot = int(fresh.get(g_team, 0))
+                    update_db({g_team: cur_tot + pts, "Active": "No", "LastResult": f"{lbl}. {pts} pts added!"})
+                    st.rerun()
